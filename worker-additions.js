@@ -27,6 +27,26 @@ function applyUserExtras(u, body) {
 }
 
 async function extraRoutes(env, me, m, p, body) {
+  /* ---- حذف مستخدم (للمدير): المهام غير المنتهية بتتحذف، والمنتهية بتفضل ---- */
+  const dm = p.match(/^\/users\/([^/]+)\/delete$/);
+  if (m === "POST" && dm) {
+    needRole(me, ["admin"]);
+    const uname = decodeURIComponent(dm[1]);
+    const users = await getJSON(env, "users", []);
+    const idx = users.findIndex(x => x.username === uname);
+    if (idx < 0) throw new HttpError(404, "المستخدم مش موجود");
+    const u = users[idx];
+    if (u.role === "admin" || u.username === me.username) throw new HttpError(400, "مينفعش تحذف حساب المدير");
+    users.splice(idx, 1);
+    await putJSON(env, "users", users);
+    const tasks = await getJSON(env, "tasks", []);
+    const keep = tasks.filter(t => t.assignee !== uname || t.status === "done");
+    const removed = tasks.length - keep.length;
+    if (removed) await putJSON(env, "tasks", keep);
+    await audit(env, me, "user_delete", u.displayName, "حذف المستخدم @" + uname + (removed ? " مع " + removed + " مهمة غير منتهية" : ""));
+    return json({ ok: true, removedTasks: removed });
+  }
+
   /* ---- صورتي ---- */
   if (m === "PATCH" && p === "/me") {
     if (body.avatar === undefined) throw new HttpError(400, "مفيش تغيير");

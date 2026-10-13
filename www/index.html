@@ -1513,7 +1513,8 @@ function renderUsersScreen(){
         '<span class="pill '+esc(u.role)+'">'+esc(roleLabelOf(u))+'</span>'+
         '<button class="btn-flat" data-av-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">صورة</button>'+
         (u.role!=="admin" ? '<button class="btn-flat" data-role-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">الدور</button>'+ '<button class="btn-flat" data-perm-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">الصلاحيات</button>'+
-          '<button class="btn-flat" data-toggle="'+esc(u.username)+'" data-active="'+u.active+'" style="flex:none;padding:5px 9px;font-size:11px">'+(u.active?'إيقاف':'تفعيل')+'</button>' : '')+
+          '<button class="btn-flat" data-toggle="'+esc(u.username)+'" data-active="'+u.active+'" style="flex:none;padding:5px 9px;font-size:11px">'+(u.active?'إيقاف':'تفعيل')+'</button>'+
+          '<button class="btn-flat mini-del" data-del-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">حذف</button>' : '')+
         '</div></div>';
     }).join("");
     Array.prototype.forEach.call(list.querySelectorAll("[data-toggle]"), function(btn){
@@ -1523,6 +1524,16 @@ function renderUsersScreen(){
         btn.disabled = true;
         api("PATCH","/users/"+encodeURIComponent(id),{active: !active}).then(function(){ renderUsersScreen(); })
           .catch(function(e){ btn.disabled = false; toast(e.message); });
+      };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-del-user]"), function(btn){
+      btn.onclick = function(){
+        var u = rows[Number(btn.getAttribute("data-del-user"))];
+        confirmModal("حذف المستخدم", "حذف «"+u.displayName+"» نهائيًا؟ المهام غير المنتهية المسندة له هتتحذف، والمنتهية وحركاته القديمة هتفضل. لو عايز تمنعه من الدخول بس استخدم «إيقاف».", "حذف نهائي", function(){
+          return api("POST","/users/"+encodeURIComponent(u.username)+"/delete").then(function(d){
+            toast("تم حذف المستخدم"+(d.removedTasks?" و"+d.removedTasks+" مهمة":"")+" ✓"); renderUsersScreen();
+          });
+        });
       };
     });
     Array.prototype.forEach.call(list.querySelectorAll("[data-av-user]"), function(btn){
@@ -1870,7 +1881,7 @@ var ACT_LABEL = {
   fund_add:"إضافة صندوق", fund_edit:"تعديل اسم صندوق", fund_status:"تغيير حالة صندوق", fund_delete:"حذف صندوق (للسلة)",
   fund_restore:"استرجاع صندوق", fund_purge:"حذف نهائي لصندوق",
   tx_edit:"تعديل حركة", tx_delete:"حذف حركة (للسلة)", tx_restore:"استرجاع حركة", tx_purge:"حذف نهائي لحركة",
-  user_add:"إضافة مستخدم", user_active:"تفعيل / إيقاف مستخدم", user_perms:"تغيير صلاحيات",
+  user_add:"إضافة مستخدم", user_active:"تفعيل / إيقاف مستخدم", user_perms:"تغيير صلاحيات", user_delete:"حذف مستخدم",
   backup_create:"نسخة احتياطية", backup_download:"تنزيل نسخة", backup_restore:"استرجاع نسخة", admin_recover:"استرجاع حساب المدير", password_change:"تغيير كلمة السر",
   avatar:"تغيير صورة شخصية", role_save:"حفظ دور", role_delete:"حذف دور", task_add:"إسناد مهمة", task_status:"تغيير حالة مهمة", task_delete:"حذف مهمة"
 };
