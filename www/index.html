@@ -505,35 +505,52 @@ function renderHeader(){
 /* ======================= التنقل بين التابات ======================= */
 /* كل الشاشات: المفتاح، الاسم، الأيقونة، الوصف، والمجموعة اللي بتظهر فيها في الصفحة الرئيسية */
 var SCREENS = {
-  funds:    {label:"الصناديق",         icon:"💰", desc:"تسجيل التبرعات والمصروفات", group:"daily"},
-  reports:  {label:"التقارير",          icon:"📊", desc:"إجماليات وطباعة PDF",       group:"daily"},
+  funds:    {label:"الصناديق",         icon:"💰", desc:"", group:"funds"},
+  stats:    {label:"إحصائيات الفترة",   icon:"📈", desc:"إجماليات من تاريخ إلى تاريخ", group:"reports"},
+  reports:  {label:"التقارير",          icon:"📊", desc:"تقرير مفصل ومختصر PDF",     group:"reports"},
   users:    {label:"الفريق",            icon:"👥", desc:"المشرفين والمتطوعين",       group:"admin"},
   trash:    {label:"سلة المحذوفات",     icon:"🗑", desc:"استرجاع المحذوف",           group:"admin"},
   audit:    {label:"سجل التدقيق",       icon:"🛡", desc:"مين عمل إيه ومتى",          group:"admin"},
   backup:   {label:"النسخ الاحتياطي",   icon:"💾", desc:"نسخ واسترجاع البيانات",     group:"admin"},
   settings: {label:"الإعدادات",         icon:"⚙", desc:"الحساب وكلمة السر وحجم الخط", group:"account"}
 };
+/* أزرار الأقسام: كل زر بيفتح صفحة صناديق القسم ده */
+var CAT_SCREENS = {
+  patient:   {label:"صناديق المرضى",   icon:"🩺", desc:"تبرعات ومصروفات كل مريض"},
+  emergency: {label:"تبرعات طارئة",    icon:"🚨", desc:"الحالات الطارئة"},
+  gaza:      {label:"غزة",             icon:"🕊", desc:"صناديق غزة"}
+};
 var GROUPS = [
-  {key:"daily",   title:"العمل اليومي"},
+  {key:"funds",   title:"الصناديق"},
+  {key:"reports", title:"الإحصائيات والتقارير"},
   {key:"admin",   title:"الإدارة"},
   {key:"account", title:"الحساب"}
 ];
 function tabsFor(){
-  var keys = ["funds"];
+  var items = [];
+  CATS.forEach(function(c){
+    var o = CAT_SCREENS[c.key];
+    items.push({key:"cat:"+c.key, label:o.label, icon:o.icon, desc:o.desc, group:"funds"});
+  });
+  var keys = [];
+  if(can("reports")) keys.push("stats");
   if(can("reports") || can("print")) keys.push("reports");
   if(currentUser.role==="admin") keys.push("users");
   if(can("editTx")) keys.push("trash");
   if(currentUser.role==="admin"){ keys.push("audit"); keys.push("backup"); }
   keys.push("settings");
-  return keys.map(function(k){ var o = SCREENS[k]; return {key:k, label:o.label, icon:o.icon, desc:o.desc, group:o.group}; });
+  keys.forEach(function(k){ var o = SCREENS[k]; items.push({key:k, label:o.label, icon:o.icon, desc:o.desc, group:o.group}); });
+  return items;
 }
-function tabAllowed(key){ return key==="home" || tabsFor().some(function(t){ return t.key===key; }); }
+function tabAllowed(key){ return key==="home" || key==="funds" || tabsFor().some(function(t){ return t.key===key; }); }
+function goFunds(cat){ catFilter = cat; switchTab("funds"); }
 
 /* الشريط اللي فوق: زر الرئيسية + اسم الشاشة (مخفي في الصفحة الرئيسية) */
 function renderNav(){
   var bar = document.getElementById("navbar");
   if(currentTab==="home"){ bar.innerHTML = ""; return; }
   var sc = SCREENS[currentTab] || {label:""};
+  if(currentTab==="funds") sc = CAT_SCREENS[catFilter] || sc;
   bar.innerHTML = '<button class="home-btn" id="homeBtn">‹ الرئيسية</button><div class="ttl">'+esc(sc.icon||"")+' '+esc(sc.label)+'</div>';
   document.getElementById("homeBtn").onclick = function(){ switchTab("home"); };
 }
@@ -556,7 +573,10 @@ function renderHome(){
   var c = document.getElementById("content");
   c.innerHTML = html;
   Array.prototype.forEach.call(c.querySelectorAll("[data-go]"), function(b){
-    b.onclick = function(){ switchTab(b.getAttribute("data-go")); };
+    b.onclick = function(){
+      var go = b.getAttribute("data-go");
+      if(go.indexOf("cat:")===0) goFunds(go.slice(4)); else switchTab(go);
+    };
   });
 }
 
@@ -571,6 +591,7 @@ function switchTab(key){
       .catch(function(e){ document.getElementById("content").innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; });
   }
   else if(key==="reports") renderReports();
+  else if(key==="stats") renderStats();
   else if(key==="users") renderUsersScreen();
   else if(key==="trash") renderTrashScreen();
   else if(key==="audit") renderAuditScreen();
@@ -583,16 +604,14 @@ function renderFundsList(){
   var c = document.getElementById("content");
   var filtered = fundsCache.filter(function(f){ return f.category===catFilter; });
 
-  var html = '<div class="cat-filter">'+CATS.map(function(cat){
-    return '<button class="'+(cat.key===catFilter?'active':'')+'" data-cat="'+cat.key+'">'+cat.label+'</button>';
-  }).join('')+'</div>';
+  var html = "";
 
-  if(can("manageFunds") && catFilter!=="gaza"){
+  if(can("manageFunds")){
     html += '<button class="full-btn" id="addFundBtn" style="margin-bottom:12px">+ إضافة صندوق جديد</button>';
   }
 
   if(!filtered.length){
-    html += '<div class="empty">لا توجد صناديق في هذا القسم بعد</div>';
+    html += '<div class="empty">لا توجد صناديق في «'+esc(catLabel(catFilter))+'» بعد</div>';
   } else {
     filtered.forEach(function(f){
       html += '<div class="fund-card'+(f.status==="closed"?' closed':'')+'" data-id="'+esc(f.id)+'">'+
@@ -603,9 +622,6 @@ function renderFundsList(){
   }
   c.innerHTML = html;
 
-  Array.prototype.forEach.call(c.querySelectorAll(".cat-filter button"), function(b){
-    b.onclick = function(){ catFilter = b.getAttribute("data-cat"); renderFundsList(); };
-  });
   var addBtn = document.getElementById("addFundBtn");
   if(addBtn) addBtn.onclick = openAddFundModal;
 
@@ -626,7 +642,7 @@ function openAddFundModal(){
   var root = document.getElementById("modalRoot");
   root.innerHTML =
     '<div class="overlay"><div class="modal"><h3>إضافة صندوق جديد</h3>'+
-    '<div class="field"><label>اسم الصندوق</label><input id="nf_name" placeholder="مثلاً: اسم المريض أو الحالة"></div>'+
+    '<div class="field"><label>اسم الصندوق</label><input id="nf_name" placeholder="'+(catFilter==="gaza"?"مثلاً: اسم الصندوق أو الحملة":"مثلاً: اسم المريض أو الحالة")+'"></div>'+
     '<div class="err" id="nf_err"></div>'+
     '<div class="row-actions"><button class="btn-flat" id="nf_cancel">إلغاء</button>'+
     '<button class="full-btn" id="nf_save">حفظ</button></div></div></div>';
@@ -680,7 +696,7 @@ function renderFundDetail(fundId){
   var c = document.getElementById("content");
   if(!fund){ c.innerHTML = '<div class="empty">الصندوق غير موجود</div>'; return; }
 
-  var html = '<button class="back-btn" id="backBtn">‹ رجوع للصناديق</button>';
+  var html = '<button class="back-btn" id="backBtn">‹ رجوع إلى '+esc(catLabel(fund.category))+'</button>';
   html += '<div class="card"><h2>'+esc(fund.name)+' '+(can("manageFunds")?'<span id="editFundIcon" style="float:left;cursor:pointer;color:var(--muted);font-size:12px">✎ تعديل</span>':'')+'</h2>';
   html += '<div class="stat-row"><div class="stat"><div class="l">الرصيد الحالي</div><div class="v">'+fmtNum(fundBalance(fund))+' ج</div></div>';
   html += '<div class="stat"><div class="l">إجمالي التبرعات</div><div class="v">'+fmtNum(fund.i)+' ج</div></div></div>';
@@ -911,7 +927,7 @@ function makeReceipt(fund, t){
 }
 
 /* ---------- تقرير من تاريخ لتاريخ ---------- */
-var COLS_TX = [5, 15, 16, 20, 16, 8, 12];
+var COLS_TX = [5, 13, 17, 26, 15, 7, 12];
 function pRow(cells, widths, o){
   o = o || {};
   var style = "display:flex;height:34px;align-items:center;border-bottom:1px solid #e1e1e1;font-size:12.5px;" +
@@ -936,24 +952,91 @@ function paginate(lines, budget){
   return pages;
 }
 
+/* ---------- تجميع الحركات حسب القسم ---------- */
+function fundById(id){ return fundsCache.find(function(f){ return f.id===id; }); }
+function catOfTx(t){
+  var f = fundById(t.fundId);
+  return (f && f.category) || t.category || "other";
+}
+function round2(n){ return Math.round((Number(n)||0)*100)/100; }
+function aggregate(tx){
+  var A = {inSum:0, outSum:0, n:tx.length, cats:{}, byWho:{}};
+  function cat(k){
+    return A.cats[k] || (A.cats[k] = {in:0, out:0, n:0, funds:{}, outByNote:{}});
+  }
+  tx.forEach(function(t){
+    var c = cat(catOfTx(t));
+    var f = c.funds[t.fundId] || (c.funds[t.fundId] = {name:t.fundName, in:0, out:0, n:0});
+    var amt = Number(t.amount)||0;
+    c.n++; f.n++;
+    if(t.t==="in"){ A.inSum += amt; c.in += amt; f.in += amt; A.byWho[t.who||"-"] = (A.byWho[t.who||"-"]||0) + amt; }
+    else {
+      A.outSum += amt; c.out += amt; f.out += amt;
+      var key = String(t.note||"").replace(/\s+/g," ").trim() || "بدون بيان";
+      var o = c.outByNote[key] || (c.outByNote[key] = {note:key, amount:0, n:0});
+      o.amount += amt; o.n++;
+    }
+  });
+  CATS.concat([{key:"other"}]).forEach(function(c){ cat(c.key); });
+  A.fundCount = function(k){ return Object.keys(A.cats[k].funds).length; };
+  return A;
+}
+function fetchPeriod(fromV, toV, fundId){
+  var from = new Date(fromV + "T00:00:00").getTime();
+  var to = new Date(toV + "T23:59:59").getTime() + 999;
+  if(!fromV || !toV || isNaN(from) || isNaN(to)) return Promise.reject(new Error("اختار التاريخين"));
+  if(to < from) return Promise.reject(new Error("التاريخ غلط: «إلى» لازم يكون بعد «من»"));
+  return api("GET", "/report?from=" + from + "&to=" + to + (fundId ? "&fund=" + encodeURIComponent(fundId) : "")).then(function(d){
+    d.from = from; d.to = to;
+    return d;
+  });
+}
+
+/* ---------- إطار صفحات التقرير (ترويسة + تذييل) ---------- */
+function reportFrame(pgs, title, sub){
+  return pgs.map(function(pg, i){
+    return '<div style="width:794px;height:1123px;box-sizing:border-box;padding:34px 40px;position:relative;overflow:hidden;'+PDF_FONT+'">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C88F45;padding-bottom:10px;margin-bottom:14px">'+
+        '<div><div style="font-size:22px;font-weight:800;color:#0E2620">داوو مرضاكم بالصدقة</div><div style="font-size:13px;color:#C88F45;font-weight:700">برويش</div></div>'+
+        '<div style="text-align:left"><div style="font-size:17px;font-weight:800">'+esc(title)+'</div><div style="font-size:12px;color:#555;margin-top:3px">'+esc(sub)+'</div></div></div>'+
+      pg.map(function(L){ return L.html; }).join("")+
+      '<div style="position:absolute;bottom:20px;left:40px;right:40px;display:flex;justify-content:space-between;font-size:11px;color:#777;border-top:1px solid #ddd;padding-top:6px">'+
+        '<span>طُبع بواسطة: '+esc(currentUser.displayName)+' - '+fmtD(Date.now())+' '+fmtT(Date.now())+'</span>'+
+        '<span>صفحة '+fmtNum(i+1)+' من '+fmtNum(pgs.length)+'</span></div></div>';
+  });
+}
+function pBox(label, val, color, isMoney){
+  return '<div style="flex:1;border:1px solid #d6d6d6;border-radius:10px;padding:10px;text-align:center"><div style="font-size:12px;color:#666">'+esc(label)+'</div><div style="font-size:21px;font-weight:800;color:'+color+'">'+fmtNum(round2(val))+(isMoney===false?'':' ج')+'</div></div>';
+}
+function boxesLine(boxes){ return {h:92, html:'<div style="display:flex;gap:10px;height:82px;margin-bottom:10px">'+boxes.join("")+'</div>'}; }
+function periodSub(o){ return "من " + fmtD(o.from) + " إلى " + fmtD(o.to) + (o.fundName ? " - " + o.fundName : ""); }
+
+/* ---------- التقرير المفصل: كل حاجة بالأسماء والحركات ---------- */
 function buildReportPages(data, o){
   var tx = data.tx.filter(function(t){ return o.kind==="all" || t.t===o.kind; });
-  var inSum = 0, outSum = 0, byFund = {}, byWho = {};
+  var A = aggregate(tx), inSum = A.inSum, outSum = A.outSum, byFund = {}, byWho = A.byWho;
   tx.forEach(function(t){
     var f = byFund[t.fundId] || (byFund[t.fundId] = {name:t.fundName, i:0, o:0});
-    if(t.t==="in"){ inSum += t.amount; f.i += t.amount; byWho[t.who] = (byWho[t.who]||0) + t.amount; }
-    else { outSum += t.amount; f.o += t.amount; }
+    if(t.t==="in") f.i += t.amount; else f.o += t.amount;
   });
   var lines = [];
 
-  function box(label, val, color){
-    return '<div style="flex:1;border:1px solid #d6d6d6;border-radius:10px;padding:10px;text-align:center"><div style="font-size:12px;color:#666">'+label+'</div><div style="font-size:21px;font-weight:800;color:'+color+'">'+fmtNum(Math.round(val*100)/100)+' ج</div></div>';
-  }
-  lines.push({h:92, html:'<div style="display:flex;gap:10px;height:82px;margin-bottom:10px">'+
-    (o.kind!=="out"?box("إجمالي التبرعات", inSum, "#1d7a46"):"")+
-    (o.kind!=="in"?box("إجمالي المصروفات", outSum, "#b3402c"):"")+
-    (o.kind==="all"?box("الصافي", inSum-outSum, "#0E2620"):"")+'</div>'});
+  lines.push(boxesLine([
+    (o.kind!=="out"?pBox("إجمالي التبرعات", inSum, "#1d7a46"):""),
+    (o.kind!=="in"?pBox("إجمالي المصروفات", outSum, "#b3402c"):""),
+    (o.kind==="all"?pBox("الصافي", inSum-outSum, "#0E2620"):"")]));
   lines.push({h:26, html:'<div style="font-size:12px;color:#666;height:26px">عدد الحركات: '+fmtNum(tx.length)+'</div>'});
+
+  /* حسب القسم */
+  var W0 = [34, 22, 22, 22];
+  lines.push(lnTitle("حسب القسم"));
+  var hd0 = {h:34, html:pRow(["القسم","عدد الصناديق","التبرعات","المصروفات"], W0, {head:true})};
+  lines.push(hd0);
+  CATS.concat([{key:"other", label:"أخرى"}]).forEach(function(c){
+    var x = A.cats[c.key];
+    if(!x || !x.n) return;
+    lines.push({h:34, hdr:hd0, html:pRow([c.label, fmtNum(A.fundCount(c.key)), fmtNum(round2(x.in)), fmtNum(round2(x.out))], W0)});
+  });
 
   /* حسب الصندوق */
   var fids = Object.keys(byFund);
@@ -978,59 +1061,150 @@ function buildReportPages(data, o){
       lines.push({h:34, hdr:hd2, html:pRow([w, fmtNum(byWho[w])+" ج"], W2)});
     });
   }
-  /* التفاصيل */
-  if(!o.summaryOnly){
-    lines.push(lnTitle("تفاصيل الحركات"));
-    var hd3 = {h:34, html:pRow(["م","التاريخ","الصندوق","البيان","المسجِّل","النوع","المبلغ"], COLS_TX, {head:true})};
-    lines.push(hd3);
-    tx.forEach(function(t, i){
-      var isIn = t.t==="in";
-      lines.push({h:34, hdr:hd3, html:pRow([fmtNum(i+1), fmtD(t.ts), t.fundName, t.note||"-", t.who||"-", isIn?"تبرع":"مصروف", fmtNum(t.amount)],
-        COLS_TX, {colors:{5:isIn?"#1d7a46":"#b3402c"}})});
-    });
-  }
-  var pgs = paginate(lines, 870);
-  var title = "تقرير التبرعات والمصروفات";
-  var sub = "من " + fmtD(o.from) + " إلى " + fmtD(o.to) + " - " + (o.fundName || "كل الصناديق");
-  return pgs.map(function(pg, i){
-    return '<div style="width:794px;height:1123px;box-sizing:border-box;padding:34px 40px;position:relative;overflow:hidden;'+PDF_FONT+'">'+
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C88F45;padding-bottom:10px;margin-bottom:14px">'+
-        '<div><div style="font-size:22px;font-weight:800;color:#0E2620">داوو مرضاكم بالصدقة</div><div style="font-size:13px;color:#C88F45;font-weight:700">برويش</div></div>'+
-        '<div style="text-align:left"><div style="font-size:17px;font-weight:800">'+esc(title)+'</div><div style="font-size:12px;color:#555;margin-top:3px">'+esc(sub)+'</div></div></div>'+
-      pg.map(function(L){ return L.html; }).join("")+
-      '<div style="position:absolute;bottom:20px;left:40px;right:40px;display:flex;justify-content:space-between;font-size:11px;color:#777;border-top:1px solid #ddd;padding-top:6px">'+
-        '<span>طُبع بواسطة: '+esc(currentUser.displayName)+' - '+fmtD(Date.now())+' '+fmtT(Date.now())+'</span>'+
-        '<span>صفحة '+fmtNum(i+1)+' من '+fmtNum(pgs.length)+'</span></div></div>';
+  /* تفاصيل كل الحركات */
+  lines.push(lnTitle("تفاصيل الحركات"));
+  var hd3 = {h:34, html:pRow(["م","التاريخ","الصندوق","البيان","المسجِّل","النوع","المبلغ"], COLS_TX, {head:true})};
+  lines.push(hd3);
+  tx.forEach(function(t, i){
+    var isIn = t.t==="in";
+    lines.push({h:34, hdr:hd3, html:pRow([fmtNum(i+1), fmtD(t.ts), t.fundName, t.note||"-", t.who||"-", isIn?"تبرع":"مصروف", fmtNum(t.amount)],
+      COLS_TX, {colors:{5:isIn?"#1d7a46":"#b3402c"}})});
   });
+  return reportFrame(paginate(lines, 870), "التقرير المفصل", periodSub(o));
 }
 
-function doPrintReport(){
-  var fromV = document.getElementById("pr_from").value, toV = document.getElementById("pr_to").value;
-  document.getElementById("pr_err").style.display = "none";
-  if(!fromV || !toV){ showErr("pr_err","اختار التاريخين"); return; }
-  var from = new Date(fromV + "T00:00:00").getTime();
-  var to = new Date(toV + "T23:59:59").getTime() + 999;
-  if(isNaN(from) || isNaN(to) || to < from){ showErr("pr_err","التاريخ غلط: «إلى» لازم يكون بعد «من»"); return; }
-  var fundSel = document.getElementById("pr_fund");
-  var fundId = fundSel.value;
-  var fundName = fundId ? fundSel.options[fundSel.selectedIndex].text : "";
-  var kindEl = document.getElementById("pr_kind");
-  var kind = kindEl ? kindEl.value : "in";
-  var summaryOnly = document.getElementById("pr_sum").checked;
+/* ---------- التقرير المختصر: من غير أسماء المرضى ولا الصناديق الطارئة ---------- */
+function buildShortPages(data, o){
+  var A = aggregate(data.tx), lines = [];
+  var P = A.cats.patient, E = A.cats.emergency, G = A.cats.gaza;
+
+  lines.push(boxesLine([pBox("إجمالي الدخل", A.inSum, "#1d7a46"), pBox("إجمالي المصروف", A.outSum, "#b3402c"), pBox("الصافي", A.inSum-A.outSum, "#0E2620")]));
+
+  lines.push(lnTitle("صناديق المرضى"));
+  lines.push(boxesLine([pBox("عدد المرضى", A.fundCount("patient"), "#0E2620", false), pBox("إجمالي الدخل", P.in, "#1d7a46"), pBox("إجمالي المصروف", P.out, "#b3402c")]));
+
+  lines.push(lnTitle("التبرعات الطارئة"));
+  lines.push(boxesLine([pBox("عدد الحالات", A.fundCount("emergency"), "#0E2620", false), pBox("إجمالي الدخل", E.in, "#1d7a46"), pBox("إجمالي المصروف", E.out, "#b3402c")]));
+  var notes = Object.keys(E.outByNote).map(function(k){ return E.outByNote[k]; }).sort(function(a,b){ return b.amount-a.amount; });
+  if(!notes.length){
+    lines.push({h:34, html:'<div style="height:34px;font-size:12.5px;color:#777">لا توجد مصروفات طارئة في الفترة</div>'});
+  } else {
+    var WE = [58, 14, 28];
+    lines.push({h:30, html:'<div style="height:30px;font-size:12.5px;font-weight:800;color:#444">المصروفات التي تمت (بدون ذكر أسماء الحالات)</div>'});
+    var hdE = {h:34, html:pRow(["البيان","العدد","المبلغ"], WE, {head:true})};
+    lines.push(hdE);
+    notes.forEach(function(n){ lines.push({h:34, hdr:hdE, html:pRow([n.note, fmtNum(n.n), fmtNum(round2(n.amount))+" ج"], WE)}); });
+    lines.push({h:34, html:pRow(["الإجمالي", fmtNum(notes.reduce(function(s,n){ return s+n.n; },0)), fmtNum(round2(E.out))+" ج"], WE, {bold:true, bg:"#f3efe7"})});
+  }
+
+  lines.push(lnTitle("صناديق التبرعات (غزة)"));
+  var gf = Object.keys(G.funds).map(function(k){ return G.funds[k]; }).filter(function(f){ return f.in>0; }).sort(function(a,b){ return b.in-a.in; });
+  if(!gf.length){
+    lines.push({h:34, html:'<div style="height:34px;font-size:12.5px;color:#777">لا توجد تبرعات في الفترة</div>'});
+  } else {
+    var WG = [65, 35];
+    var hdG = {h:34, html:pRow(["الصندوق","إجمالي التبرعات في الفترة"], WG, {head:true})};
+    lines.push(hdG);
+    gf.forEach(function(f){ lines.push({h:34, hdr:hdG, html:pRow([f.name, fmtNum(round2(f.in))+" ج"], WG)}); });
+    lines.push({h:34, html:pRow(["الإجمالي", fmtNum(round2(G.in))+" ج"], WG, {bold:true, bg:"#f3efe7"})});
+  }
+  return reportFrame(paginate(lines, 870), "التقرير المختصر", periodSub(o));
+}
+
+/* ---------- تنفيذ التقارير ---------- */
+function makeReportPdf(type, fromV, toV, opts, errId){
+  opts = opts || {};
   setBusy("جاري جلب البيانات...");
-  pdfDone(
-    api("GET", "/report?from=" + from + "&to=" + to + (fundId ? "&fund=" + encodeURIComponent(fundId) : "")).then(function(d){
-      var shown = d.tx.filter(function(t){ return kind==="all" || t.t===kind; });
+  return pdfDone(
+    refreshFunds().catch(function(){}).then(function(){ return fetchPeriod(fromV, toV, opts.fundId); }).then(function(d){
+      var kind = opts.kind || "all";
+      var shown = d.tx.filter(function(t){ return type==="short" || kind==="all" || t.t===kind; });
       if(!shown.length){ throw new Error("مفيش حركات في الفترة دي"); }
-      if(!summaryOnly && shown.length > 1200){ summaryOnly = true; toast("الحركات كتيرة، هيتعمل ملخص بس. قلّل الفترة عشان التفاصيل"); }
       if(d.truncated){ toast("الفترة كبيرة جدًا، الأرقام ناقصة. قلّل الفترة"); }
-      var pages = buildReportPages(d, {from:from, to:to, kind:kind, fundName:fundName, summaryOnly:summaryOnly});
+      var o = {from:d.from, to:d.to, kind:kind, fundName:opts.fundName || ""};
+      var pages;
+      if(type==="short") pages = buildShortPages(d, o);
+      else {
+        if(shown.length > 1500){ throw new Error("الحركات كتيرة ("+fmtNum(shown.length)+"). قلّل الفترة أو اختار تقرير مختصر"); }
+        pages = buildReportPages(d, o);
+      }
       return htmlPagesToPdf(pages, "a4");
     }).then(function(pdf){
       clearBusy();
-      return savePdf(pdf, "daawo-report-" + fromV.replace(/-/g,"") + "-" + toV.replace(/-/g,"") + ".pdf");
+      return savePdf(pdf, "daawo-" + (type==="short" ? "short" : "detailed") + "-" + fromV.replace(/-/g,"") + "-" + toV.replace(/-/g,"") + ".pdf");
     })
   );
+}
+function reportBtns(prefix){
+  return '<div class="row-actions"><button class="full-btn" id="'+prefix+'_det">📄 تقرير مفصل PDF</button>'+
+    (can("reports") ? '<button class="full-btn" id="'+prefix+'_short">📋 تقرير مختصر PDF</button>' : '')+'</div>';
+}
+
+/* ======================= إحصائيات الفترة ======================= */
+function renderStats(){
+  var c = document.getElementById("content");
+  var now = new Date(), first = new Date(now.getFullYear(), now.getMonth(), 1);
+  c.innerHTML =
+    '<div class="card"><h2>الفترة</h2>'+
+    '<div class="row2"><div class="field"><label>من تاريخ</label><input type="date" id="st_from" value="'+ymd(first)+'"></div>'+
+    '<div class="field"><label>إلى تاريخ</label><input type="date" id="st_to" value="'+ymd(now)+'"></div></div>'+
+    '<div class="opt-row" id="st_presets">'+
+      '<button data-p="month">هذا الشهر</button><button data-p="prev">الشهر الماضي</button><button data-p="year">هذه السنة</button><button data-p="all">الكل</button></div>'+
+    '<div class="err" id="st_err"></div>'+
+    '<button class="full-btn" id="st_go" style="margin-top:10px">عرض الإحصائيات</button></div>'+
+    '<div id="st_body"></div>';
+
+  function setRange(a, b){ document.getElementById("st_from").value = ymd(a); document.getElementById("st_to").value = ymd(b); load(); }
+  Array.prototype.forEach.call(c.querySelectorAll("#st_presets button"), function(btn){
+    btn.onclick = function(){
+      var n = new Date(), p = btn.getAttribute("data-p");
+      if(p==="month") setRange(new Date(n.getFullYear(), n.getMonth(), 1), n);
+      else if(p==="prev") setRange(new Date(n.getFullYear(), n.getMonth()-1, 1), new Date(n.getFullYear(), n.getMonth(), 0));
+      else if(p==="year") setRange(new Date(n.getFullYear(), 0, 1), n);
+      else setRange(new Date(2020, 0, 1), n);
+    };
+  });
+  document.getElementById("st_go").onclick = load;
+
+  function load(){
+    var fromV = document.getElementById("st_from").value, toV = document.getElementById("st_to").value;
+    var body = document.getElementById("st_body");
+    document.getElementById("st_err").style.display = "none";
+    body.innerHTML = '<div class="loading">جاري الحساب...</div>';
+    refreshFunds().catch(function(){}).then(function(){ return fetchPeriod(fromV, toV); }).then(function(d){
+      if(currentTab!=="stats") return;
+      var A = aggregate(d.tx);
+      var html = '';
+      if(d.truncated) html += '<div class="warn-box">الفترة كبيرة جدًا والأرقام ممكن تكون ناقصة. قلّل الفترة.</div>';
+      html += '<div class="card"><h2>الإجمالي من '+esc(fmtD(d.from))+' إلى '+esc(fmtD(d.to))+'</h2>'+
+        '<div class="stat-row"><div class="stat"><div class="l">إجمالي الدخل</div><div class="v" style="color:var(--success)">'+fmtNum(round2(A.inSum))+' ج</div></div>'+
+        '<div class="stat"><div class="l">إجمالي المصروف</div><div class="v" style="color:var(--danger)">'+fmtNum(round2(A.outSum))+' ج</div></div></div>'+
+        '<div class="stat-row" style="margin-bottom:0"><div class="stat"><div class="l">الصافي</div><div class="v">'+fmtNum(round2(A.inSum-A.outSum))+' ج</div></div>'+
+        '<div class="stat"><div class="l">عدد الحركات</div><div class="v">'+fmtNum(A.n)+'</div></div></div></div>';
+      var counts = {patient:"عدد المرضى", emergency:"عدد الحالات", gaza:"عدد الصناديق"};
+      CATS.forEach(function(cat){
+        var x = A.cats[cat.key];
+        html += '<div class="card"><h2>'+(CAT_SCREENS[cat.key].icon)+' '+esc(cat.label)+'</h2>'+
+          '<div class="stat-row" style="margin-bottom:0"><div class="stat"><div class="l">'+counts[cat.key]+'</div><div class="v">'+fmtNum(A.fundCount(cat.key))+'</div></div>'+
+          '<div class="stat"><div class="l">الدخل</div><div class="v" style="color:var(--success)">'+fmtNum(round2(x.in))+' ج</div></div></div>'+
+          '<div class="stat-row" style="margin:10px 0 0"><div class="stat" style="grid-column:1/-1"><div class="l">المصروف</div><div class="v" style="color:var(--danger)">'+fmtNum(round2(x.out))+' ج</div></div></div></div>';
+      });
+      var whos = Object.keys(A.byWho).sort(function(a,b){ return A.byWho[b]-A.byWho[a]; });
+      if(whos.length){
+        html += '<div class="card"><h2>أداء المتطوعين (مبلغ ما تم تحصيله)</h2>'+whos.map(function(w){
+          return '<div class="tx-row"><div class="who">'+esc(w)+'</div><div class="amt in">'+fmtNum(round2(A.byWho[w]))+' ج</div></div>';
+        }).join("")+'</div>';
+      }
+      if(!A.n) html += '<div class="empty">مفيش حركات في الفترة دي</div>';
+      html += '<div class="card"><h2>تنزيل PDF للفترة دي</h2>'+reportBtns("st")+
+        '<p class="hint">المختصر: أعداد وإجماليات من غير أسماء المرضى أو الصناديق الطارئة. المفصل: كل الحركات بالأسماء.</p></div>';
+      body.innerHTML = html;
+      var det = document.getElementById("st_det"), sh = document.getElementById("st_short");
+      if(det) det.onclick = function(){ makeReportPdf("detailed", fromV, toV, {kind:"all"}); };
+      if(sh) sh.onclick = function(){ makeReportPdf("short", fromV, toV, {}); };
+    }).catch(function(e){ body.innerHTML = ""; showErr("st_err", e.message); });
+  }
+  load();
 }
 
 /* ======================= التقارير ======================= */
@@ -1045,15 +1219,17 @@ function renderReports(){
       var now = new Date(), first = new Date(now.getFullYear(), now.getMonth(), 1);
       var opts = fundsCache.slice().sort(function(a,b){ return String(a.name).localeCompare(String(b.name), "ar"); })
         .map(function(f){ return '<option value="'+esc(f.id)+'">'+esc(f.name)+'</option>'; }).join("");
-      html += '<div class="card"><h2>طباعة تقرير PDF</h2>'+
+      html += '<div class="card"><h2>تقارير PDF</h2>'+
         '<div class="row2"><div class="field"><label>من تاريخ</label><input type="date" id="pr_from" value="'+ymd(first)+'"></div>'+
         '<div class="field"><label>إلى تاريخ</label><input type="date" id="pr_to" value="'+ymd(now)+'"></div></div>'+
+        '<div class="sub-title">خيارات التقرير المفصل</div>'+
         '<div class="field"><label>الصندوق</label><select id="pr_fund"><option value="">كل الصناديق</option>'+opts+'</select></div>'+
         (can("reports") ? '<div class="field"><label>النوع</label><select id="pr_kind"><option value="all">تبرعات ومصروفات</option><option value="in">التبرعات فقط</option><option value="out">المصروفات فقط</option></select></div>' : '')+
-        '<label class="chk"><input type="checkbox" id="pr_sum"><span>ملخص فقط (من غير تفاصيل الحركات)</span></label>'+
         '<div class="err" id="pr_err"></div>'+
-        '<button class="full-btn" id="pr_btn" style="margin-top:10px">إنشاء PDF</button>'+
-        '<p class="hint">'+(can("reports") ? 'بعد الإنشاء هتظهر شاشة المشاركة: احفظ الملف أو ابعته من موبايلك.' : 'التقرير هيشمل التبرعات اللي سجلتها انت بس. بعد الإنشاء احفظ الملف أو ابعته من موبايلك.')+'</p></div>';
+        reportBtns("pr")+
+        '<p class="hint">'+(can("reports") ?
+          'المفصل: كل الحركات بالأسماء والبيانات. المختصر: عدد المرضى وإجمالي الدخل والمصروف لكل قسم، من غير أسماء المرضى ولا الصناديق الطارئة (بيظهر بس المصروفات: معامل، أشعة، عمليات...)، مع صناديق غزة وإجمالي تبرعاتها. المختصر مش بيتأثر باختيار الصندوق والنوع.<br>بعد الإنشاء هتظهر شاشة المشاركة: احفظ الملف أو ابعته من موبايلك.' :
+          'التقرير هيشمل التبرعات اللي سجلتها انت بس. بعد الإنشاء احفظ الملف أو ابعته من موبايلك.')+'</p></div>';
     }
 
     if(can("reports")){
@@ -1087,8 +1263,21 @@ function renderReports(){
     }
 
     c.innerHTML = html;
-    var pb = document.getElementById("pr_btn");
-    if(pb) pb.onclick = doPrintReport;
+    function dates(){
+      document.getElementById("pr_err").style.display = "none";
+      return {from:document.getElementById("pr_from").value, to:document.getElementById("pr_to").value};
+    }
+    var det = document.getElementById("pr_det"), sh = document.getElementById("pr_short");
+    if(det) det.onclick = function(){
+      var d = dates(), fs = document.getElementById("pr_fund"), ke = document.getElementById("pr_kind");
+      if(!d.from || !d.to){ showErr("pr_err","اختار التاريخين"); return; }
+      makeReportPdf("detailed", d.from, d.to, {fundId:fs.value, fundName:fs.value ? fs.options[fs.selectedIndex].text : "", kind: ke ? ke.value : "in"});
+    };
+    if(sh) sh.onclick = function(){
+      var d = dates();
+      if(!d.from || !d.to){ showErr("pr_err","اختار التاريخين"); return; }
+      makeReportPdf("short", d.from, d.to, {});
+    };
   }).catch(function(e){ c.innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; });
 }
 
