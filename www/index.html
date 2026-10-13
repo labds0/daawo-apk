@@ -131,9 +131,65 @@
   .info-row{ display:flex; justify-content:space-between; align-items:center; padding:9px 2px; border-bottom:1px solid var(--line); font-size:13px; }
   .info-row:last-child{ border-bottom:none; }
   .info-row .k{ color:var(--muted); font-size:12px; }
+
+  /* شاشة البداية المتحركة */
+  #splash{ position:fixed; inset:0; z-index:1000; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    background: radial-gradient(700px 480px at 50% 38%, #1d6050, #0E2620 70%); transition:opacity .45s ease, visibility .45s; }
+  #splash.hide{ opacity:0; visibility:hidden; }
+  #splash .sp-logo{ border-radius:30px; box-shadow:0 14px 40px rgba(0,0,0,.45), 0 0 60px rgba(227,168,87,.25); animation: spPop .7s cubic-bezier(.2,.9,.3,1.2) both, spFloat 2.6s ease-in-out .7s infinite; }
+  #splash #sp-coin{ animation: spDrop 1.9s cubic-bezier(.55,0,.35,1) infinite; transform-box:fill-box; }
+  #splash h1{ margin:6px 0 0; font-size:21px; font-weight:800; color:var(--gold); opacity:0; animation: spFade .7s ease .35s forwards; }
+  #splash .sp-sub{ font-size:13px; font-weight:700; color:var(--gold-dim); opacity:0; animation: spFade .7s ease .55s forwards; }
+  #splash .sp-dots{ display:flex; gap:7px; margin-top:16px; }
+  #splash .sp-dots i{ width:7px; height:7px; border-radius:50%; background:var(--gold); opacity:.3; animation: spDot 1.2s ease-in-out infinite; }
+  #splash .sp-dots i:nth-child(2){ animation-delay:.2s; } #splash .sp-dots i:nth-child(3){ animation-delay:.4s; }
+  @keyframes spPop{ from{ transform:scale(.6); opacity:0; } to{ transform:scale(1); opacity:1; } }
+  @keyframes spFloat{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-6px); } }
+  @keyframes spDrop{ 0%{ transform:translateY(-150px); opacity:0; } 18%{ opacity:1; } 62%{ transform:translateY(0); opacity:1; } 80%{ transform:translateY(0); opacity:1; } 100%{ transform:translateY(60px); opacity:0; } }
+  @keyframes spFade{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
+  @keyframes spDot{ 0%,100%{ opacity:.3; transform:scale(.8); } 50%{ opacity:1; transform:scale(1.25); } }
+  @media (prefers-reduced-motion: reduce){ #splash *{ animation-duration:.01s !important; animation-iteration-count:1 !important; } }
 </style>
 </head>
 <body>
+<div id="splash"><div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="132" height="132" class="sp-logo">
+<defs>
+  <linearGradient id="bgs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1D6050"/><stop offset=".55" stop-color="#103A31"/><stop offset="1" stop-color="#08201A"/></linearGradient>
+  <radialGradient id="gls" cx=".5" cy=".36" r=".5"><stop offset="0" stop-color="#F3C77A" stop-opacity=".42"/><stop offset="1" stop-color="#F3C77A" stop-opacity="0"/></radialGradient>
+  <linearGradient id="golds" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE3A3"/><stop offset=".5" stop-color="#E9AE55"/><stop offset="1" stop-color="#B97A2C"/></linearGradient>
+  <linearGradient id="boxs" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2A7A66"/><stop offset="1" stop-color="#123F37"/></linearGradient>
+  <filter id="shs" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#000" flood-opacity=".4"/></filter>
+</defs>
+
+  <rect width="1024" height="1024" rx="230" fill="url(#bgs)"/>
+  <rect width="1024" height="1024" rx="230" fill="url(#gls)"/>
+  <g fill="none" stroke="#E3A857" stroke-opacity=".09" stroke-width="3">
+    <circle cx="512" cy="470" r="250"/><circle cx="512" cy="470" r="360"/><circle cx="512" cy="470" r="470"/>
+    <g transform="translate(512 470)"><rect x="-190" y="-190" width="380" height="380"/><rect x="-190" y="-190" width="380" height="380" transform="rotate(45)"/></g>
+  </g>
+<g filter="url(#shs)">
+  <rect x="262" y="590" width="500" height="290" rx="56" fill="url(#boxs)" stroke="#E3A857" stroke-opacity=".55" stroke-width="5"/>
+  <g transform="translate(512 735)" fill="none" stroke="#F3C77A" stroke-opacity=".8" stroke-width="7" stroke-linejoin="round">
+    <rect x="-52" y="-52" width="104" height="104" rx="10"/><rect x="-52" y="-52" width="104" height="104" rx="10" transform="rotate(45)"/>
+    <circle r="18" fill="#F3C77A" stroke="none"/>
+  </g>
+  <rect x="236" y="548" width="552" height="78" rx="39" fill="url(#golds)"/>
+  <rect x="362" y="576" width="300" height="22" rx="11" fill="#08201A"/>
+</g>
+<g id="sp-coin">
+  <g filter="url(#shs)">
+    <circle cx="512" cy="372" r="140" fill="url(#golds)"/>
+    <circle cx="512" cy="372" r="112" fill="none" stroke="#9A6521" stroke-opacity=".55" stroke-width="7"/>
+    <path d="M512 452 C436 396 426 340 468 322 C494 312 512 330 512 344 C512 330 530 312 556 322 C598 340 588 396 512 452 Z" fill="#8F5C1C" fill-opacity=".9"/>
+    <path d="M400 300 A130 130 0 0 1 470 250" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</g>
+<g fill="#FFE3A3">
+  <path d="M770 250 l12 30 30 12 -30 12 -12 30 -12 -30 -30 -12 30 -12z" opacity=".95"/>
+  <path d="M262 330 l8 20 20 8 -20 8 -8 20 -8 -20 -20 -8 20 -8z" opacity=".75"/>
+  <path d="M820 470 l6 14 14 6 -14 6 -6 14 -6 -14 -14 -6 14 -6z" opacity=".55"/>
+</g>
+</svg></div><h1>داوو مرضاكم بالصدقة</h1><div class="sp-sub">برويش</div><div class="sp-dots"><i></i><i></i><i></i></div></div>
 <div class="wrap">
   <header id="headerBox">
     <h1>داوو مرضاكم بالصدقة</h1>
@@ -341,6 +397,19 @@ function setupBackHandler(){
   });
 }
 
+/* ======================= شاشة البداية ======================= */
+var splashStart = Date.now();
+function hideSplash(){
+  var el = document.getElementById("splash");
+  if(!el || el.classList.contains("hide")) return;
+  var wait = Math.max(0, 1600 - (Date.now() - splashStart));
+  setTimeout(function(){
+    el.classList.add("hide");
+    setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 600);
+  }, wait);
+}
+setTimeout(hideSplash, 12000);
+
 /* ======================= المصادقة ======================= */
 function renderAuthLoading(msg){
   document.getElementById("appScreen").style.display = "none";
@@ -353,7 +422,7 @@ function renderAuthError(msg, retry){
   var el = document.getElementById("authScreen");
   el.style.display = "block";
   el.innerHTML = '<div class="card"><div class="empty">'+esc(msg)+'</div><button class="full-btn" id="retryBtn">إعادة المحاولة</button></div>';
-  document.getElementById("retryBtn").onclick = retry;
+  hideSplash();document.getElementById("retryBtn").onclick = retry;
 }
 
 function showLoggedOut(){
@@ -365,7 +434,7 @@ function showLoggedOut(){
 
 function renderSetupAdminScreen(){
   authView = "setup";
-  document.getElementById("appScreen").style.display = "none";
+  hideSplash();document.getElementById("appScreen").style.display = "none";
   var el = document.getElementById("authScreen");
   el.style.display = "block";
   el.innerHTML =
@@ -399,7 +468,7 @@ function renderSetupAdminScreen(){
 
 function renderLoginScreen(){
   authView = "login";
-  document.getElementById("appScreen").style.display = "none";
+  hideSplash();document.getElementById("appScreen").style.display = "none";
   var el = document.getElementById("authScreen");
   el.style.display = "block";
   el.innerHTML =
@@ -469,7 +538,7 @@ function startSession(u){
   renderHeader();
   switchTab("home");
   startPolling();
-}
+hideSplash();}
 
 function boot(){
   applyZoom();
