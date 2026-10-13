@@ -38,7 +38,7 @@
   header.hero::after{ width:130px; height:130px; right:-40px; bottom:-60px; }
   .hd-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; position:relative; z-index:1; }
   .hd-user{ display:flex; align-items:center; gap:11px; min-width:0; }
-  .avatar{ width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,.2); border:2px solid rgba(255,255,255,.55); display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; flex:none; }
+  .avatar{ overflow:hidden; width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,.2); border:2px solid rgba(255,255,255,.55); display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; flex:none; }
   .hd-name{ font-size:15px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .hd-sub{ font-size:11.5px; opacity:.85; margin-top:1px; display:flex; align-items:center; gap:6px; }
   .role-badge{ background:rgba(255,255,255,.2); border-radius:20px; padding:1px 9px; font-size:10.5px; }
@@ -185,6 +185,14 @@
   @keyframes spBar{ 0%{ right:-45%; } 100%{ right:100%; } }
   @keyframes spBlob{ 0%,100%{ transform:translateY(0) rotate(0); } 50%{ transform:translateY(-14px) rotate(6deg); } }
   @media (prefers-reduced-motion: reduce){ #splash *{ animation-duration:.01s !important; animation-delay:0s !important; animation-iteration-count:1 !important; } }
+  .avatar img,.av img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .av{ width:40px; height:40px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line); color:var(--gold); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; flex:none; overflow:hidden; margin-left:10px; }
+  .av.big{ width:92px; height:92px; font-size:34px; margin:0 auto 10px; border:3px solid var(--gold); }
+  .user-row .l{ display:flex; align-items:center; min-width:0; }
+  .task{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:11px 13px; margin-bottom:9px; }
+  .task.done{ opacity:.6; } .task.done .tt{ text-decoration:line-through; }
+  .task .tt{ font-weight:800; font-size:14px; } .task .tm{ font-size:11px; color:var(--muted); margin-top:3px; line-height:1.6; }
+  .task.late{ border-color:var(--danger); }
 </style>
 </head>
 <body>
@@ -255,7 +263,8 @@ function toast(msg){
 var CATS = [
   {key:"patient", label:"صناديق المرضى"},
   {key:"emergency", label:"تبرعات طارئة"},
-  {key:"gaza", label:"غزة"}
+  {key:"gaza", label:"غزة"},
+  {key:"orphan", label:"كفالة يتيم"}
 ];
 var ROLE_LABEL = {admin:"مدير", supervisor:"مشرف", employee:"متطوع جمع تبرعات"};
 
@@ -267,12 +276,67 @@ var PERMS = [
   {k:"reports", l:"عرض التقارير والإجماليات"},
   {k:"print", l:"طباعة التقارير والإيصالات (PDF)"},
   {k:"viewLog", l:"رؤية سجل حركات الصناديق"},
-  {k:"editTx", l:"تعديل وحذف الحركات واسترجاعها من السلة"}
+  {k:"editTx", l:"تعديل وحذف الحركات واسترجاعها من السلة"},
+  {k:"assignTasks", l:"إسناد المهام للمستخدمين ومتابعتها"}
 ];
 var PERM_DEFAULTS = {
-  supervisor: {donate:true, expense:true, manageFunds:true, reports:true, print:true, viewLog:true, editTx:true},
+  supervisor: {donate:true, expense:true, manageFunds:true, reports:true, print:true, viewLog:true, editTx:true, assignTasks:true},
   employee:   {donate:true, expense:false, manageFunds:false, reports:false, print:false, viewLog:true, editTx:false}
 };
+var rolesCache = [];
+function roleLabelOf(u){ return u.roleName || ROLE_LABEL[u.role] || u.role || ""; }
+function loadRoles(){ return api("GET","/roles").then(function(d){ rolesCache = d.roles||[]; return rolesCache; }).catch(function(){ return rolesCache; }); }
+
+/* ======================= الصور الشخصية ======================= */
+function avInner(u){
+  return u && u.avatar ? '<img alt="" src="'+esc(u.avatar)+'">' : esc(String((u&&(u.displayName||u.username))||"?").trim().charAt(0));
+}
+/* بيختار صورة من الجهاز ويصغّرها (256px) عشان تتخزن خفيفة */
+function pickImage(cb){
+  var inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = function(){
+    var f = inp.files && inp.files[0]; if(!f) return;
+    var img = new Image(), url = URL.createObjectURL(f);
+    img.onload = function(){
+      var S = 256, side = Math.min(img.width, img.height), cv = document.createElement("canvas");
+      cv.width = cv.height = S;
+      cv.getContext("2d").drawImage(img, (img.width-side)/2, (img.height-side)/2, side, side, 0, 0, S, S);
+      URL.revokeObjectURL(url); cb(cv.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = function(){ toast("الصورة دي مش مدعومة"); };
+    img.src = url;
+  };
+  inp.click();
+}
+/* بيحفظ الصورة (data) للمستخدم نفسه أو لمستخدم آخر (للمدير)، وبيتأكد إن السيرفر حفظها فعلاً */
+function saveAvatar(username, data, self){
+  var path = self ? "/me" : "/users/"+encodeURIComponent(username);
+  return api("PATCH", path, {avatar: data}).then(function(){
+    return api("GET", self ? "/me" : "/users").then(function(d){
+      var u = self ? d.user : (d.users||[]).filter(function(x){ return x.username===username; })[0];
+      if(u && (u.avatar||null) !== (data||null)) throw new Error("السيرفر لسه ما بيدعمش حفظ الصور (اقرأ ملف BACKEND-CHANGES.md)");
+      if(self){ currentUser.avatar = u.avatar||null; renderHeader(); }
+    });
+  });
+}
+function avatarModal(u, self, done){
+  var root = document.getElementById("modalRoot"), cur = u.avatar||null;
+  root.innerHTML = '<div class="overlay"><div class="modal"><h3>صورة: '+esc(u.displayName)+'</h3>'+
+    '<div class="av big" id="avp">'+avInner(u)+'</div>'+
+    '<div class="row-actions"><button class="btn-flat" id="av_pick">اختيار صورة</button><button class="btn-flat" id="av_del">حذف الصورة</button></div>'+
+    '<div class="err" id="av_err"></div>'+
+    '<div class="row-actions"><button class="btn-flat" id="av_cancel">إلغاء</button><button class="full-btn" id="av_save" disabled>حفظ</button></div></div></div>';
+  function show(){ document.getElementById("avp").innerHTML = avInner({avatar:cur, displayName:u.displayName}); document.getElementById("av_save").disabled = false; }
+  document.getElementById("av_pick").onclick = function(){ pickImage(function(d){ cur = d; show(); }); };
+  document.getElementById("av_del").onclick = function(){ cur = null; show(); };
+  document.getElementById("av_cancel").onclick = function(){ root.innerHTML = ""; };
+  document.getElementById("av_save").onclick = function(){
+    var b = document.getElementById("av_save"); b.disabled = true;
+    saveAvatar(u.username, cur, self).then(function(){ root.innerHTML = ""; toast("تم حفظ الصورة ✓"); if(done) done(); })
+      .catch(function(e){ b.disabled = false; showErr("av_err", e.message); });
+  };
+}
+
 function can(k){ return !!(currentUser && currentUser.perms && currentUser.perms[k]); }
 function permBoxes(perms){
   return PERMS.map(function(p){
@@ -319,8 +383,8 @@ function refreshMe(){
   return api("GET","/me").then(function(d){
     var u = d.user;
     if(!currentUser) return;
-    var changed = JSON.stringify(u.perms)!==JSON.stringify(currentUser.perms) || u.role!==currentUser.role || u.displayName!==currentUser.displayName;
-    currentUser.perms = u.perms; currentUser.role = u.role; currentUser.displayName = u.displayName;
+    var changed = JSON.stringify(u.perms)!==JSON.stringify(currentUser.perms) || u.role!==currentUser.role || u.displayName!==currentUser.displayName || (u.avatar||null)!==(currentUser.avatar||null) || u.roleName!==currentUser.roleName;
+    currentUser.perms = u.perms; currentUser.role = u.role; currentUser.displayName = u.displayName; currentUser.avatar = u.avatar||null; currentUser.roleName = u.roleName;
     if(changed){
       renderHeader(); renderBottomNav();
       if(!tabAllowed(currentTab)) switchTab("home");
@@ -421,6 +485,9 @@ var ICONS = {
   audit:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>',
   backup:'<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
   settings:'<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+  orphan:'<circle cx="12" cy="6.5" r="3.5"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/><path d="M12 14.2l-1.2-1.1a1.5 1.5 0 0 1 2.4-1.7 1.5 1.5 0 0 1 2.4 1.7z" transform="translate(0 3)"/>',
+  tasks:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  roles:'<path d="M12 2l3 6 6 .9-4.5 4.3 1.1 6.3L12 16.6 6.4 19.5l1.1-6.3L3 8.9 9 8z"/>',
   logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
 };
 function ic(name){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(ICONS[name]||"")+'</svg>'; }
@@ -547,7 +614,7 @@ function renderRecoverScreen(){
 }
 
 function startSession(u){
-  currentUser = { uid:u.username, username:u.username, displayName:u.displayName, role:u.role, perms:u.perms || {} };
+  currentUser = { uid:u.username, username:u.username, displayName:u.displayName, role:u.role, roleName:u.roleName, avatar:u.avatar||null, perms:u.perms || {} };
   document.getElementById("authScreen").style.display = "none";
   document.getElementById("appScreen").style.display = "block";
   currentTab = "home"; openFundId = null; lastFundsJson = "";
@@ -584,12 +651,12 @@ function resetHeader(){
   h.innerHTML = WM_SVG + '<div class="tag">مرضاكم بالصدقة</div>';
 }
 function renderHeader(){
-  var roleLabel = ROLE_LABEL[currentUser.role] || "";
+  var roleLabel = roleLabelOf(currentUser);
   var h = document.getElementById("headerBox");
   h.className = "hero";
   var ini = String(currentUser.displayName||"?").trim().charAt(0);
   h.innerHTML =
-    '<div class="hd-row"><div class="hd-user"><div class="avatar">'+esc(ini)+'</div>'+
+    '<div class="hd-row"><div class="hd-user"><div class="avatar">'+avInner(currentUser)+'</div>'+
     '<div style="min-width:0"><div class="hd-name">'+esc(currentUser.displayName)+'</div>'+
     '<div class="hd-sub"><span class="role-badge">'+esc(roleLabel)+'</span></div></div></div>'+
     '<div class="hd-actions"><button class="hd-btn" id="settingsBtn" aria-label="الإعدادات">'+ic("settings")+'</button>'+
@@ -631,6 +698,8 @@ var SCREENS = {
   funds:    {label:"الصناديق",         icon:"wallet", desc:"", group:"funds"},
   stats:    {label:"إحصائيات الفترة",   icon:"stats", desc:"إجماليات من تاريخ إلى تاريخ", group:"reports"},
   reports:  {label:"التقارير",          icon:"reports", desc:"تقرير مفصل ومختصر PDF",     group:"reports"},
+  tasks:    {label:"المهام",             icon:"tasks", desc:"المهام المسندة ومتابعتها",   group:"work"},
+  roles:    {label:"الأدوار",           icon:"roles", desc:"إنشاء الأدوار وتعيينها",     group:"admin"},
   users:    {label:"الفريق",            icon:"users", desc:"المشرفين والمتطوعين",       group:"admin"},
   trash:    {label:"سلة المحذوفات",     icon:"trash", desc:"استرجاع المحذوف",           group:"admin"},
   audit:    {label:"سجل التدقيق",       icon:"audit", desc:"مين عمل إيه ومتى",          group:"admin"},
@@ -641,11 +710,13 @@ var SCREENS = {
 var CAT_SCREENS = {
   patient:   {label:"صناديق المرضى",   icon:"patient", desc:"تبرعات ومصروفات كل مريض"},
   emergency: {label:"تبرعات طارئة",    icon:"emergency", desc:"الحالات الطارئة"},
-  gaza:      {label:"غزة",             icon:"gaza", desc:"صناديق غزة"}
+  gaza:      {label:"غزة",             icon:"gaza", desc:"صناديق غزة"},
+  orphan:    {label:"كفالة يتيم",      icon:"orphan", desc:"صناديق كفالة الأيتام"}
 };
 var GROUPS = [
   {key:"funds",   title:"الصناديق"},
   {key:"reports", title:"الإحصائيات والتقارير"},
+  {key:"work",    title:"المهام"},
   {key:"admin",   title:"الإدارة"},
   {key:"account", title:"الحساب"}
 ];
@@ -658,7 +729,8 @@ function tabsFor(){
   var keys = [];
   if(can("reports")) keys.push("stats");
   if(can("reports") || can("print")) keys.push("reports");
-  if(currentUser.role==="admin") keys.push("users");
+  keys.push("tasks");
+  if(currentUser.role==="admin"){ keys.push("users"); keys.push("roles"); }
   if(can("editTx")) keys.push("trash");
   if(currentUser.role==="admin"){ keys.push("audit"); keys.push("backup"); }
   keys.push("settings");
@@ -728,6 +800,8 @@ function switchTab(key){
   else if(key==="reports") renderReports();
   else if(key==="stats") renderStats();
   else if(key==="users") renderUsersScreen();
+  else if(key==="tasks") renderTasksScreen();
+  else if(key==="roles") renderRolesScreen();
   else if(key==="trash") renderTrashScreen();
   else if(key==="audit") renderAuditScreen();
   else if(key==="backup") renderBackupScreen();
@@ -777,7 +851,7 @@ function openAddFundModal(){
   var root = document.getElementById("modalRoot");
   root.innerHTML =
     '<div class="overlay"><div class="modal"><h3>إضافة صندوق جديد</h3>'+
-    '<div class="field"><label>اسم الصندوق</label><input id="nf_name" placeholder="'+(catFilter==="gaza"?"مثلاً: اسم الصندوق أو الحملة":"مثلاً: اسم المريض أو الحالة")+'"></div>'+
+    '<div class="field"><label>اسم الصندوق</label><input id="nf_name" placeholder="'+(catFilter==="gaza"?"مثلاً: اسم الصندوق أو الحملة":catFilter==="orphan"?"مثلاً: اسم اليتيم أو الكفالة":"مثلاً: اسم المريض أو الحالة")+'"></div>'+
     '<div class="err" id="nf_err"></div>'+
     '<div class="row-actions"><button class="btn-flat" id="nf_cancel">إلغاء</button>'+
     '<button class="full-btn" id="nf_save">حفظ</button></div></div></div>';
@@ -1211,7 +1285,7 @@ function buildReportPages(data, o){
 /* ---------- التقرير المختصر: من غير أسماء المرضى ولا الصناديق الطارئة ---------- */
 function buildShortPages(data, o){
   var A = aggregate(data.tx), lines = [];
-  var P = A.cats.patient, E = A.cats.emergency, G = A.cats.gaza;
+  var P = A.cats.patient, E = A.cats.emergency, G = A.cats.gaza, O = A.cats.orphan;
 
   lines.push(boxesLine([pBox("إجمالي الدخل", A.inSum, "#1d7a46"), pBox("إجمالي المصروف", A.outSum, "#b3402c"), pBox("الصافي", A.inSum-A.outSum, "#17624A")]));
 
@@ -1231,6 +1305,9 @@ function buildShortPages(data, o){
     notes.forEach(function(n){ lines.push({h:34, hdr:hdE, html:pRow([n.note, fmtNum(n.n), fmtNum(round2(n.amount))+" ج"], WE)}); });
     lines.push({h:34, html:pRow(["الإجمالي", fmtNum(notes.reduce(function(s,n){ return s+n.n; },0)), fmtNum(round2(E.out))+" ج"], WE, {bold:true, bg:"#f3efe7"})});
   }
+
+  lines.push(lnTitle("كفالة الأيتام"));
+  lines.push(boxesLine([pBox("عدد الأيتام", A.fundCount("orphan"), "#17624A", false), pBox("إجمالي الدخل", O.in, "#1d7a46"), pBox("إجمالي المصروف", O.out, "#b3402c")]));
 
   lines.push(lnTitle("صناديق التبرعات (غزة)"));
   var gf = Object.keys(G.funds).map(function(k){ return G.funds[k]; }).filter(function(f){ return f.in>0; }).sort(function(a,b){ return b.in-a.in; });
@@ -1316,7 +1393,7 @@ function renderStats(){
         '<div class="stat"><div class="l">إجمالي المصروف</div><div class="v" style="color:var(--danger)">'+fmtNum(round2(A.outSum))+' ج</div></div></div>'+
         '<div class="stat-row" style="margin-bottom:0"><div class="stat"><div class="l">الصافي</div><div class="v">'+fmtNum(round2(A.inSum-A.outSum))+' ج</div></div>'+
         '<div class="stat"><div class="l">عدد الحركات</div><div class="v">'+fmtNum(A.n)+'</div></div></div></div>';
-      var counts = {patient:"عدد المرضى", emergency:"عدد الحالات", gaza:"عدد الصناديق"};
+      var counts = {patient:"عدد المرضى", emergency:"عدد الحالات", gaza:"عدد الصناديق", orphan:"عدد الأيتام"};
       CATS.forEach(function(cat){
         var x = A.cats[cat.key];
         html += '<div class="card"><h2><span class="h-ic">'+ic(CAT_SCREENS[cat.key].icon)+'</span>'+esc(cat.label)+'</h2>'+
@@ -1430,11 +1507,12 @@ function renderUsersScreen(){
     list.className = "";
     if(!rows.length){ list.innerHTML='<div class="empty">لا يوجد مستخدمين</div>'; return; }
     list.innerHTML = rows.map(function(u, i){
-      return '<div class="user-row"><div><div class="nm">'+esc(u.displayName)+'</div>'+
-        '<div class="meta">@'+esc(u.username)+'</div></div>'+
+      return '<div class="user-row"><div class="l"><div class="av">'+avInner(u)+'</div><div><div class="nm">'+esc(u.displayName)+'</div>'+
+        '<div class="meta">@'+esc(u.username)+'</div></div></div>'+
         '<div class="btns">'+
-        '<span class="pill '+esc(u.role)+'">'+esc(ROLE_LABEL[u.role]||u.role)+'</span>'+
-        (u.role!=="admin" ? '<button class="btn-flat" data-perm-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">الصلاحيات</button>'+
+        '<span class="pill '+esc(u.role)+'">'+esc(roleLabelOf(u))+'</span>'+
+        '<button class="btn-flat" data-av-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">صورة</button>'+
+        (u.role!=="admin" ? '<button class="btn-flat" data-role-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">الدور</button>'+ '<button class="btn-flat" data-perm-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">الصلاحيات</button>'+
           '<button class="btn-flat" data-toggle="'+esc(u.username)+'" data-active="'+u.active+'" style="flex:none;padding:5px 9px;font-size:11px">'+(u.active?'إيقاف':'تفعيل')+'</button>' : '')+
         '</div></div>';
     }).join("");
@@ -1446,6 +1524,12 @@ function renderUsersScreen(){
         api("PATCH","/users/"+encodeURIComponent(id),{active: !active}).then(function(){ renderUsersScreen(); })
           .catch(function(e){ btn.disabled = false; toast(e.message); });
       };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-av-user]"), function(btn){
+      btn.onclick = function(){ var u = rows[Number(btn.getAttribute("data-av-user"))]; avatarModal(u, u.username===currentUser.username, renderUsersScreen); };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-role-user]"), function(btn){
+      btn.onclick = function(){ openAssignRoleModal(rows[Number(btn.getAttribute("data-role-user"))]); };
     });
     Array.prototype.forEach.call(list.querySelectorAll("[data-perm-user]"), function(btn){
       btn.onclick = function(){ openPermsModal(rows[Number(btn.getAttribute("data-perm-user"))]); };
@@ -1504,6 +1588,129 @@ function openAddUserModal(){
       root.innerHTML="";
       renderUsersScreen();
     }).catch(function(e){ btn.disabled = false; showErr("au_err","خطأ: " + e.message); });
+  };
+}
+
+/* ======================= الأدوار ======================= */
+function renderRolesScreen(){
+  var c = document.getElementById("content");
+  c.innerHTML = '<button class="full-btn" id="addRoleBtn" style="margin-bottom:12px">+ إنشاء دور جديد</button>'+
+    '<div class="card"><h2>الأدوار</h2><div id="rolesList" class="loading">جاري التحميل...</div></div>'+
+    '<p class="hint">الأدوار الأساسية (مشرف / متطوع) ثابتة. أنشئ أدوار مخصصة بصلاحياتها، وعيّنها للمستخدمين من شاشة الفريق ← «الدور».</p>';
+  document.getElementById("addRoleBtn").onclick = function(){ openRoleModal(null); };
+  loadRoles().then(function(rs){
+    var el = document.getElementById("rolesList"); if(!el) return; el.className = "";
+    if(!rs.length){ el.innerHTML = '<div class="empty">لا توجد أدوار مخصصة بعد</div>'; return; }
+    el.innerHTML = rs.map(function(r,i){
+      var n = PERMS.filter(function(p){ return r.perms && r.perms[p.k]; }).length;
+      return '<div class="user-row"><div><div class="nm">'+esc(r.label)+'</div><div class="meta">'+n+' صلاحية - أساسه: '+esc(ROLE_LABEL[r.base]||r.base)+'</div></div>'+
+        '<div class="btns"><button class="btn-flat" data-re="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">تعديل</button>'+
+        '<button class="btn-flat mini-del" data-rd="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">حذف</button></div></div>';
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("[data-re]"), function(b){ b.onclick = function(){ openRoleModal(rs[Number(b.getAttribute("data-re"))]); }; });
+    Array.prototype.forEach.call(el.querySelectorAll("[data-rd]"), function(b){ b.onclick = function(){
+      var r = rs[Number(b.getAttribute("data-rd"))];
+      confirmModal("حذف الدور", "حذف «"+r.label+"»؟ المستخدمين اللي عليه هيفضلوا بصلاحياتهم الحالية.", "حذف", function(){
+        return api("POST","/roles/"+encodeURIComponent(r.id)+"/delete").then(renderRolesScreen);
+      });
+    }; });
+  });
+}
+function openRoleModal(r){
+  var root = document.getElementById("modalRoot"); r = r || {label:"", base:"employee", perms:PERM_DEFAULTS.employee};
+  root.innerHTML = '<div class="overlay"><div class="modal"><h3>'+(r.id?'تعديل الدور':'دور جديد')+'</h3>'+
+    '<div class="field"><label>اسم الدور</label><input id="ro_name" value="'+esc(r.label)+'" placeholder="مثلاً: أمين صندوق"></div>'+
+    '<div class="field"><label>يعتمد على</label><select id="ro_base"><option value="employee"'+(r.base==="employee"?' selected':'')+'>متطوع جمع تبرعات</option><option value="supervisor"'+(r.base==="supervisor"?' selected':'')+'>مشرف</option></select></div>'+
+    '<div class="field"><label>الصلاحيات</label><div id="ro_perms">'+permBoxes(r.perms||{})+'</div></div>'+
+    '<div class="err" id="ro_err"></div><div class="row-actions"><button class="btn-flat" id="ro_cancel">إلغاء</button><button class="full-btn" id="ro_save">حفظ</button></div></div></div>';
+  document.getElementById("ro_cancel").onclick = function(){ root.innerHTML = ""; };
+  document.getElementById("ro_save").onclick = function(){
+    var name = document.getElementById("ro_name").value.trim();
+    if(!name){ showErr("ro_err","اكتب اسم الدور"); return; }
+    var body = {label:name, base:document.getElementById("ro_base").value, perms:readPerms(document.getElementById("ro_perms"))};
+    var b = document.getElementById("ro_save"); b.disabled = true;
+    api(r.id?"PATCH":"POST", r.id?"/roles/"+encodeURIComponent(r.id):"/roles", body).then(function(){ root.innerHTML = ""; toast("تم الحفظ ✓"); renderRolesScreen(); })
+      .catch(function(e){ b.disabled = false; showErr("ro_err", e.message); });
+  };
+}
+function openAssignRoleModal(u){
+  var root = document.getElementById("modalRoot");
+  loadRoles().then(function(rs){
+    var opts = '<option value="employee">متطوع جمع تبرعات (أساسي)</option><option value="supervisor">مشرف (أساسي)</option>'+
+      rs.map(function(r){ return '<option value="'+esc(r.id)+'">'+esc(r.label)+'</option>'; }).join("");
+    root.innerHTML = '<div class="overlay"><div class="modal"><h3>دور: '+esc(u.displayName)+'</h3>'+
+      '<div class="field"><label>الدور</label><select id="ar_role">'+opts+'</select></div>'+
+      '<p class="hint">تغيير الدور بيطبّق صلاحياته على المستخدم (ينفع تعدّلها بعدين من «الصلاحيات»).</p>'+
+      '<div class="err" id="ar_err"></div><div class="row-actions"><button class="btn-flat" id="ar_cancel">إلغاء</button><button class="full-btn" id="ar_save">حفظ</button></div></div></div>';
+    var sel = document.getElementById("ar_role"); sel.value = u.roleId || u.role;
+    document.getElementById("ar_cancel").onclick = function(){ root.innerHTML = ""; };
+    document.getElementById("ar_save").onclick = function(){
+      var v = sel.value, custom = rs.filter(function(r){ return r.id===v; })[0];
+      var body = custom ? {role:custom.base, roleId:custom.id, roleName:custom.label, perms:custom.perms}
+                        : {role:v, roleId:null, roleName:null, perms:PERM_DEFAULTS[v]};
+      var b = document.getElementById("ar_save"); b.disabled = true;
+      api("PATCH","/users/"+encodeURIComponent(u.username), body).then(function(){ root.innerHTML = ""; toast("تم تعيين الدور ✓"); renderUsersScreen(); })
+        .catch(function(e){ b.disabled = false; showErr("ar_err", e.message); });
+    };
+  });
+}
+
+/* ======================= المهام ======================= */
+var taskFilter = "open";
+function renderTasksScreen(){
+  var c = document.getElementById("content"), mgr = can("assignTasks") || currentUser.role==="admin";
+  c.innerHTML = (mgr ? '<button class="full-btn" id="addTaskBtn" style="margin-bottom:12px">+ مهمة جديدة</button>' : '')+
+    '<div class="cat-filter" id="tkF"><button data-f="open">مفتوحة</button><button data-f="done">منتهية</button><button data-f="all">الكل</button></div>'+
+    '<div id="tkList" class="loading">جاري التحميل...</div>';
+  Array.prototype.forEach.call(c.querySelectorAll("#tkF button"), function(b){
+    b.classList.toggle("active", b.getAttribute("data-f")===taskFilter);
+    b.onclick = function(){ taskFilter = b.getAttribute("data-f"); renderTasksScreen(); };
+  });
+  var usersP = mgr ? api("GET","/users").then(function(d){ return d.users||[]; }).catch(function(){ return []; }) : Promise.resolve([]);
+  Promise.all([api("GET","/tasks"), usersP]).then(function(r){
+    var el = document.getElementById("tkList"); if(!el) return; el.className = "";
+    var users = r[1], names = {}; users.forEach(function(u){ names[u.username] = u.displayName; });
+    names[currentUser.username] = currentUser.displayName;
+    var list = (r[0].tasks||[]).filter(function(t){ return mgr || t.assignee===currentUser.username; })
+      .filter(function(t){ return taskFilter==="all" || (taskFilter==="done") === (t.status==="done"); })
+      .sort(function(a,b){ return (a.due||"9999").localeCompare(b.due||"9999"); });
+    if(!list.length){ el.innerHTML = '<div class="empty">لا توجد مهام</div>'; return; }
+    var today = ymd(new Date());
+    el.innerHTML = list.map(function(t,i){
+      var late = t.status!=="done" && t.due && t.due < today;
+      return '<div class="task'+(t.status==="done"?' done':'')+(late?' late':'')+'"><div class="tt">'+esc(t.title)+'</div>'+
+        '<div class="tm">'+(t.note?esc(t.note)+'<br>':'')+'👤 '+esc(names[t.assignee]||t.assignee)+(t.due?' · 📅 '+esc(t.due)+(late?' (متأخرة)':''):'')+'</div>'+
+        '<div class="btns" style="justify-content:flex-start;margin-top:6px"><button class="mini-btn" data-tg="'+i+'">'+(t.status==="done"?'إعادة فتح':'تم ✓')+'</button>'+
+        (mgr?'<button class="mini-btn mini-del" data-td="'+i+'">حذف</button>':'')+'</div></div>';
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("[data-tg]"), function(b){ b.onclick = function(){
+      var t = list[Number(b.getAttribute("data-tg"))]; b.disabled = true;
+      api("PATCH","/tasks/"+encodeURIComponent(t.id),{status:t.status==="done"?"open":"done"}).then(renderTasksScreen).catch(function(e){ b.disabled = false; toast(e.message); });
+    }; });
+    Array.prototype.forEach.call(el.querySelectorAll("[data-td]"), function(b){ b.onclick = function(){
+      var t = list[Number(b.getAttribute("data-td"))];
+      confirmModal("حذف المهمة", "حذف «"+t.title+"»؟", "حذف", function(){ return api("POST","/tasks/"+encodeURIComponent(t.id)+"/delete").then(renderTasksScreen); });
+    }; });
+    var ab = document.getElementById("addTaskBtn"); if(ab) ab.onclick = function(){ openTaskModal(users); };
+  }).catch(function(e){ var el = document.getElementById("tkList"); if(el){ el.className = ""; el.innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; } });
+  var ab0 = document.getElementById("addTaskBtn"); if(ab0) ab0.onclick = function(){ usersP.then(openTaskModal); };
+}
+function openTaskModal(users){
+  var root = document.getElementById("modalRoot");
+  var act = users.filter(function(u){ return u.active!==false; });
+  root.innerHTML = '<div class="overlay"><div class="modal"><h3>مهمة جديدة</h3>'+
+    '<div class="field"><label>المهمة</label><input id="tk_title" maxlength="120"></div>'+
+    '<div class="field"><label>تفاصيل (اختياري)</label><input id="tk_note" maxlength="300"></div>'+
+    '<div class="field"><label>إسناد إلى</label><select id="tk_who">'+act.map(function(u){ return '<option value="'+esc(u.username)+'">'+esc(u.displayName)+' ('+esc(roleLabelOf(u))+')</option>'; }).join("")+'</select></div>'+
+    '<div class="field"><label>الموعد النهائي (اختياري)</label><input id="tk_due" type="date"></div>'+
+    '<div class="err" id="tk_err"></div><div class="row-actions"><button class="btn-flat" id="tk_cancel">إلغاء</button><button class="full-btn" id="tk_save">إضافة</button></div></div></div>';
+  document.getElementById("tk_cancel").onclick = function(){ root.innerHTML = ""; };
+  document.getElementById("tk_save").onclick = function(){
+    var title = document.getElementById("tk_title").value.trim(), who = document.getElementById("tk_who").value;
+    if(!title){ showErr("tk_err","اكتب المهمة"); return; } if(!who){ showErr("tk_err","اختار مستخدم"); return; }
+    var b = document.getElementById("tk_save"); b.disabled = true;
+    api("POST","/tasks",{title:title, note:document.getElementById("tk_note").value.trim(), assignee:who, due:document.getElementById("tk_due").value||null})
+      .then(function(){ root.innerHTML = ""; toast("تمت إضافة المهمة ✓"); renderTasksScreen(); }).catch(function(e){ b.disabled = false; showErr("tk_err", e.message); });
   };
 }
 
@@ -1664,7 +1871,8 @@ var ACT_LABEL = {
   fund_restore:"استرجاع صندوق", fund_purge:"حذف نهائي لصندوق",
   tx_edit:"تعديل حركة", tx_delete:"حذف حركة (للسلة)", tx_restore:"استرجاع حركة", tx_purge:"حذف نهائي لحركة",
   user_add:"إضافة مستخدم", user_active:"تفعيل / إيقاف مستخدم", user_perms:"تغيير صلاحيات",
-  backup_create:"نسخة احتياطية", backup_download:"تنزيل نسخة", backup_restore:"استرجاع نسخة", admin_recover:"استرجاع حساب المدير", password_change:"تغيير كلمة السر"
+  backup_create:"نسخة احتياطية", backup_download:"تنزيل نسخة", backup_restore:"استرجاع نسخة", admin_recover:"استرجاع حساب المدير", password_change:"تغيير كلمة السر",
+  avatar:"تغيير صورة شخصية", role_save:"حفظ دور", role_delete:"حذف دور", task_add:"إسناد مهمة", task_status:"تغيير حالة مهمة", task_delete:"حذف مهمة"
 };
 function actClass(a){
   if(/_delete$|_purge$|backup_restore|admin_recover/.test(a)) return "bad";
@@ -1839,9 +2047,11 @@ function renderSettingsScreen(){
   var z = getZoom();
   c.innerHTML =
     '<div class="card"><h2>حسابي</h2>'+
+      '<div class="av big" id="myAv">'+avInner(currentUser)+'</div>'+
+      '<div class="row-actions" style="justify-content:center;margin:0 0 8px"><button class="btn-flat" id="myAvBtn" style="flex:none;padding:7px 16px">تغيير صورتي</button></div>'+
       '<div class="info-row"><span class="k">الاسم</span><b>'+esc(currentUser.displayName)+'</b></div>'+
       '<div class="info-row"><span class="k">اسم المستخدم</span><b dir="ltr">@'+esc(currentUser.username)+'</b></div>'+
-      '<div class="info-row"><span class="k">الدور</span><span class="pill '+esc(currentUser.role)+'">'+esc(ROLE_LABEL[currentUser.role]||currentUser.role)+'</span></div>'+
+      '<div class="info-row"><span class="k">الدور</span><span class="pill '+esc(currentUser.role)+'">'+esc(roleLabelOf(currentUser))+'</span></div>'+
     '</div>'+
     '<div class="card"><h2>حجم الخط</h2><div class="opt-row" id="zoomRow">'+
       ZOOM_OPTS.map(function(o){ return '<button data-z="'+o.v+'" class="'+(o.v===z?'active':'')+'">'+o.l+'</button>'; }).join("")+
@@ -1864,6 +2074,7 @@ function renderSettingsScreen(){
     };
   });
   document.getElementById("st_logout").onclick = forceLogout;
+  document.getElementById("myAvBtn").onclick = function(){ avatarModal(currentUser, true, renderSettingsScreen); };
   document.getElementById("pw_save").onclick = function(){
     var cur = document.getElementById("pw_cur").value;
     var nw = document.getElementById("pw_new").value;
